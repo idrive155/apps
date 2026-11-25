@@ -1,24 +1,24 @@
 {
-  "id": "sideways",
-  "title": "Drift Analyser",
-  "description": "Drift angle scoring plus Live Data vitals: coolant, oil, gearbox, boost, rpm and gear",
+  "id": "idrive155_drift",
+  "title": "IDRIVE155 Drift",
+  "titleHu": "IDRIVE155 Drift",
+  "description": "Drift angle scoring plus Live Data vitals: coolant, oil, gearbox, boost, rpm and gear. iDrive 7 and 8.",
+  "descriptionHu": "Drift szög mérés és pontozás, plusz élő adatok: hűtővíz, olaj, váltó, turbó, fordulat és fokozat. iDrive 7 és 8.",
   "version": "0.7.0",
   "vendor": "idrive155",
-  "loggingId": "OAD7",
-  "iconGlyph": "SW",
-  "mguHmi": [
-    "ID7",
-    "ID8"
-  ],
+  "author": "idrive155",
+  "loggingId": "I155",
+  "iconGlyph": "DR",
+  "mguHmi": ["ID7", "ID8"],
+  "mguInternet": false,
+  "requires": {
+    "mgu-render": "0.3.1"
+  },
   "signals": {
     "com.harman.infotainment.systemfunctions.tasu.tasu.InternalTasu": {
       "_instances": "SystemFunctionsInternalTasuInst1",
-      "_methods": [
-        "sendTasuRequest"
-      ],
-      "_broadcasts": [
-        "sendTasuResponse"
-      ]
+      "_methods": ["sendTasuRequest"],
+      "_broadcasts": ["sendTasuResponse"]
     },
     "de.bmw.infotainment.vehicle.CDS": {
       "statusEngineSpeed2": "rs",
@@ -68,10 +68,11 @@
     {
       "name": "MAIN",
       "kind": "canvas",
-      "title": "Drift Analyser",
+      "title": "IDRIVE155 Drift",
       "chrome": false,
       "buttons": []
     }
   ],
-  "settings": []
+  "settings": [],
+  "coreEntry": "app/preview_entry.js"
 }

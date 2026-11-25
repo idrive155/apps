@@ -20,7 +20,7 @@
     log: { info: function () {}, warn: function (m) { console.warn(m); } },
     load: function (k) {
       if (k === 'settings' && store[k] == null) {
-        return { mode: 'demo', preset: 'coupe', autoBody: false, drive: 'rwd' };
+        return { mode: 'demo', preset: 'coupe', autoBody: false, drive: 'rwd', lang: 'hu' };
       }
       return store[k] || null;
     },

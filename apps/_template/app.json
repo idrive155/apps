@@ -1,0 +1,25 @@
+{
+  "id": "idrive155_example",
+  "title": "Example App",
+  "description": "Copy this folder to apps/<id>/ and fill in your app.",
+  "version": "0.1.0",
+  "vendor": "idrive155",
+  "author": "idrive155",
+  "loggingId": "I155",
+  "mguHmi": ["ID7", "ID8"],
+  "mguInternet": false,
+  "requires": {
+    "mgu-render": "0.3.1"
+  },
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "canvas",
+      "title": "Example",
+      "chrome": false,
+      "buttons": []
+    }
+  ],
+  "settings": [],
+  "coreEntry": "app/preview_entry.js"
+}

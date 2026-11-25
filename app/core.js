@@ -23,6 +23,7 @@ const { Score, ratingOf, tierOf } = require('../sim/score');
 const { DriftEstimator } = require('../sim/estimator');
 const W3 = require('../fx/world');
 const { Hud } = require('../ui/hud');
+const I18N = require('../ui/i18n');
 const { pk, hex } = require('../engine/rec');
 function randomHex(n) {
     let out = '';
@@ -43,6 +44,7 @@ const DEFAULTS = {
     mode: 'live', preset: 'coupe', autoBody: true, demoUnlocked: false,
     drive: 'rwd', rhd: false, gps: 'auto', units: 'kmh', steerRatio: 15.0, quality: 'auto',
     theme: null,          // 'id7' | 'id8'; null until the first start, then the car's own generation (host.idrive)
+    lang: 'auto',         // 'auto' | 'hu' | 'en' — auto follows the head unit
 };
 // replay cameras: chase, top, and top from higher up; each holds its angle and distance (no cuts, no zoom)
 const CAMS = ['chase', 'top', 'topwide'];
@@ -61,7 +63,13 @@ function createApp(host) {
     const save = () => host.save && host.save('settings', S);
     // the look follows the car's iDrive on the very first start; after that it is the driver's choice
     if (S.theme !== 'id7' && S.theme !== 'id8') { S.theme = host.idrive === 'id8' ? 'id8' : 'id7'; save(); }
+    function applyLang() {
+        const want = S.lang === 'hu' || S.lang === 'en' ? S.lang : I18N.detect(host);
+        I18N.setLang(want);
+    }
+    applyLang();
     const saveRecords = () => host.save && host.save('records', records);
+    const t = I18N.t;
 
     /* ---------- the car, the sim, the session ---------- */
     let spec, car, demo, metrics, est, score, hud, trails, smoke, cam, rec2, lod = S.quality === 'low' ? 1 : 0;
@@ -74,7 +82,7 @@ function createApp(host) {
     let titleTaps = [];
     /** a problem, told in a popup: what happened and what to do; TRY AGAIN when it may pass */
     function problem(title, text, retry) {
-        hud.popupShow({ title, text, tone: 'error', buttons: retry ? [{ label: 'CLOSE' }, { label: 'TRY AGAIN', run: retry, primary: true }] : [{ label: 'OK', primary: true }] });
+        hud.popupShow({ title: t(title), text: t(text), tone: 'error', buttons: retry ? [{ label: t('CLOSE') }, { label: t('TRY AGAIN'), run: retry, primary: true }] : [{ label: t('OK'), primary: true }] });
     }
     // the demo drive is for showing the app off, not for a car on the road: locked unless unlocked
     // (or the host has no car at all, as the browser preview)
@@ -220,14 +228,17 @@ function createApp(host) {
                 : { kind: 'info', label: 'Data', value: 'Live car' },
             { kind: 'seg', label: 'GPS fusion', value: S.gps === 'off' ? 'off' : 'auto', options: [{ id: 'auto', label: 'Auto' }, { id: 'off', label: 'Off' }], set: (v) => { S.gps = v; } },
             { kind: 'seg', label: 'Units', value: S.units === 'mph' ? 'mph' : 'kmh', options: [{ id: 'kmh', label: 'km/h' }, { id: 'mph', label: 'mph' }], set: (v) => { S.units = v; } },
-            { kind: 'button', label: 'Session', value: 'Best ' + Math.round(records.best).toLocaleString('en') + '  /  ' + Math.round(records.maxAngle) + '°', action: 'Reset', danger: true,
+            { kind: 'button', label: 'Session', value: 'Best ' + Math.round(records.best).toLocaleString(I18N.getLang() === 'hu' ? 'hu-HU' : 'en') + '  /  ' + Math.round(records.maxAngle) + '°', action: 'Reset', danger: true,
                 run: () => { score.reset(); trails.reset(); smoke.reset(); hud.reset(); rec2.reset(); } },
             { section: 'APP' },
-            { kind: 'seg', label: 'Design', value: S.theme, note: host.idrive ? 'This car: ' + (host.idrive === 'id8' ? 'iDrive 8' : 'iDrive 7') : '',
+            { kind: 'seg', label: 'Language', value: S.lang || 'auto',
+                options: [{ id: 'auto', label: 'Auto' }, { id: 'hu', label: 'Magyar' }, { id: 'en', label: 'English' }],
+                set: (v) => { S.lang = v; applyLang(); save(); } },
+            { kind: 'seg', label: 'Design', value: S.theme, note: host.idrive ? t('This car: ') + (host.idrive === 'id8' ? 'iDrive 8' : 'iDrive 7') : '',
                 options: [{ id: 'id7', label: 'iDrive 7', raw: true }, { id: 'id8', label: 'iDrive 8', raw: true }], set: (v) => { S.theme = v; hud.setTheme(v); save(); } },
-            { kind: 'seg', label: 'Graphics', value: S.quality, note: S.quality === 'auto' ? (lod ? 'Now: light' : 'Now: full') : '', options: [{ id: 'auto', label: 'Auto' }, { id: 'high', label: 'Full' }, { id: 'low', label: 'Light' }],
+            { kind: 'seg', label: 'Graphics', value: S.quality, note: S.quality === 'auto' ? (lod ? t('Now: light') : t('Now: full')) : '', options: [{ id: 'auto', label: 'Auto' }, { id: 'high', label: 'Full' }, { id: 'low', label: 'Light' }],
                 set: (v) => { S.quality = v; lod = v === 'low' ? 1 : 0; slow = 0; rebuild(); } },
-            { kind: 'info', label: 'Version', value: 'Sideways ' + VERSION },
+            { kind: 'info', label: 'Version', value: 'IDRIVE155 ' + VERSION },
         ];
     }
 
@@ -261,7 +272,14 @@ function createApp(host) {
             const msg = String(e && e.message || e).slice(0, 120);
             if (log.warn) log.warn('frame error: ' + msg + (e && e.stack ? ' ' + String(e.stack).split('\n').slice(1, 3).join(' ') : ''));
             player2 = null; editor = null; share = null; hud.screen = null;
-            if (msg !== lastCrash) { lastCrash = msg; hud.popupShow({ title: 'SOMETHING WENT WRONG', text: 'The app hit an error and recovered: ' + msg + '. It keeps running; if this comes back, restart it.', tone: 'error', buttons: [{ label: 'OK', primary: true }] }); }
+            if (msg !== lastCrash) {
+                lastCrash = msg;
+                hud.popupShow({
+                    title: t('SOMETHING WENT WRONG'),
+                    text: t('The app hit an error and recovered: ') + msg + t('. It keeps running; if this comes back, restart it.'),
+                    tone: 'error', buttons: [{ label: t('OK'), primary: true }],
+                });
+            }
             try { rec.reset(); return frameInner(rec, 0, W, H); } catch (e2) { rec.reset(); rec.clear(0x000000ff); return undefined; }
         }
     }
@@ -344,7 +362,7 @@ function createApp(host) {
         return rec;
     }
     function model(view) {
-        const status = S.mode === 'demo' || player2 ? null : !live || clock - liveFresh > 3 ? 'NO CAR DATA YET' : null;
+        const status = S.mode === 'demo' || player2 ? null : !live || clock - liveFresh > 3 ? t('NO CAR DATA YET') : null;
         return {
             m: metrics, score, vitals: vitalsSnap, mode: S.mode === 'demo' ? 'DEMO' : 'LIVE', units: S.units, sigma: est.sigma || 0, status, gps: clock - gpsSeen < 2,
             menuRows: hud && hud.screen === 'menu' ? menuRows() : null,

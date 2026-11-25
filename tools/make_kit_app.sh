@@ -1,11 +1,12 @@
 #!/bin/sh
-# make_kit_app.sh - dist/sideways: the app folder for the idrive7-apps kit
-#   cp -r dist/sideways <idrive7-apps>/apps/  &&  python3 kit/tools/build.py sideways
+# make_kit_app.sh - pack all Store apps (or one) into dist/*.tgz + catalog.json
+#   ./tools/make_kit_app.sh
+#   ./tools/make_kit_app.sh idrive155_drift
 set -e
 cd "$(dirname "$0")/.."
-rm -rf dist/sideways && mkdir -p dist/sideways
-python3 tools/build_web.py node
-cp platform/main.js platform/rclient.js platform/live.js platform/vitals.js platform/http.js platform/idrive.js platform/sig.js platform/carid.js platform/app.json platform/icon.png dist/sideways/
-cp LICENSE dist/sideways/LICENSE 2>/dev/null || true
-node -e "require('./dist/sideways/sideways_core.js'); console.log('core loads under node')"
-ls -la dist/sideways
+if [ -n "$1" ]; then
+  python3 tools/build_apps.py --app "$1"
+else
+  python3 tools/build_apps.py
+fi
+ls -la dist

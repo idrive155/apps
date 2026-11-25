@@ -19,6 +19,8 @@ const W3 = require('../fx/world');
 const { F } = require('./replay');
 const { pk, fade, hex } = require('../engine/rec');
 const TM = require('../ui/theme');
+const I18N = require('../ui/i18n');
+I18N.install(T);
 
 // the video's own size: QHD (1440 lines). The frame is laid out in proportion, so the car's editor
 // preview (1080 lines, scaled into its box) shows the same picture

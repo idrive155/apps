@@ -2,72 +2,63 @@
 
 BMW iDrive 7 / iDrive 8 (MGU) apps for the [MGU Store](https://github.com/robertnisipeanu/mgu-store).
 
-## Drift analyser (Sideways fork)
+Multi-app source: every folder under [`apps/`](apps/) with an `app.json` is published and shows up when you add this repository as a Store source.
 
-This repository currently ships **[Sideways](https://github.com/idrive-labs/sideways)** — a professional drift angle meter and scorer (M Drift Analyser style): live angle, chain scoring, Live Data vitals, and replays.
+## Install on the car
 
-Based on Sideways by iDrive Labs (GPL-3.0-or-later). Upstream: https://github.com/idrive-labs/sideways
+1. Root + [MGU Store](https://github.com/robertnisipeanu/mgu-store) on the head unit  
+2. Store → **Settings → Add source**  
+3. Type: **`idrive155/apps`**  
+4. Choose **Releases**  
+5. Install the apps you want (and **mgu-render** if prompted)
 
-### Install on the car (fastest)
+Updates: bump `version` in `apps/<id>/app.json`, push a `v*` tag (or run the **Publish MGU Store catalog** Action). The Store reads the `catalog` release.
 
-You do **not** need this repo on the head unit to try it:
+## Apps in this repo
 
-1. MGU Store → **Settings → Add source**
-2. Type `idrive-labs/mgu-apps`, choose **Releases**
-3. Install **Sideways**
-4. Drive a few normal corners until *Calibrating* disappears
+| Id | Title | Folder |
+|---|---|---|
+| `idrive155_drift` | IDRIVE155 Drift | [`apps/idrive155_drift`](apps/idrive155_drift) |
 
-Needs root + MGU Store.
+### IDRIVE155 Drift
 
-### Live Data vitals (v0.7)
-
-Always-on strip + full **VITALS** page (idrive7 Live Data / M Vitals scaling):
-
-| Tile | Source |
-|---|---|
-| Coolant / engine oil | `CDS.statusEngineTemperature` (−48 °C) |
-| Gearbox oil | `BasicDataSet` when the car fills it |
-| Boost | `FES.statusSwitchDriveDynamicSport2` (0.01 bar) |
-| RPM / torque / power % | CDS + FES sport display |
-| Gear | `VehicleInformation.statusGearboxDrive` |
-
-Read-only SOME/IP — same idea as Live Data, nothing written to the car.
-
-### Scoring (same as upstream)
+Sideways-based drift angle meter and scorer (M Drift Analyser style): live angle, chain scoring, Live Data vitals, replays. GPL fork of [Sideways](https://github.com/idrive-labs/sideways) by iDrive Labs.
 
 | | |
 |---|---|
 | **Drifting** | angle ≥ 10° above 20 km/h |
 | **Points** | angle × speed, more when held steady |
-| **Chain** | 1.4 s grace between drifts |
-| **Multiplier** | +0.5 / 2.5 s and on clean transitions, up to ×6 |
-| **Bank** | points × multiplier when grace ends; spin (>110°) or stop loses the chain |
-| **Ratings** | Nice · Great 800 · Awesome 2500 · Insane 6000 · Legendary 12000 · Godlike 25000 |
+| **Chain** | 1.4 s grace; multiplier up to ×6 |
+| **Vitals** | coolant, oil, gearbox, boost, rpm, gear (read-only SOME/IP) |
 
-### Develop / customise here
+## Add a new app
 
 ```sh
-./tools/make_kit_app.sh
-# -> dist/sideways  (app folder for the idrive7-apps kit)
-# cp -r dist/sideways /path/to/idrive7-apps/apps/
-# python3 kit/tools/build.py sideways
+cp -R apps/_template apps/my_app
+# edit apps/my_app/app.json  (unique id!)
+# add apps/my_app/icon.png   (140×140, ≤128 KiB)
+# add apps/my_app/main.js + modules
 ```
 
-Node.js + Python 3. Head unit runs Node 8 — keep that API surface.
+Then publish (see below). The Action packs **every** `apps/*/app.json` into the catalog — all of them appear in the Store under this one source.
 
-Signals used (read-only): yaw rate, lateral/longitudinal accel, steering angle, wheel speeds, vehicle speed. See `platform/live.js`.
+## Develop / publish
 
-### Own Store source later
+```sh
+npm run preview          # browser HUD preview
+npm run build            # pack all apps → dist/*.tgz + catalog.json
+npm run build -- idrive155_drift
+```
 
-To publish from **this** GitHub repo (`idrive155/apps`):
+GitHub Action [`.github/workflows/publish.yml`](.github/workflows/publish.yml):
 
-1. Push this tree (or built `@.tgz` packages) to GitHub
-2. In the Store: **Add source** → `idrive155/apps` (Releases, Tags, or a branch with `mgu-repo.json`)
-3. Install your package from that source
+- **workflow_dispatch** or tag **`v*`** → builds all apps  
+- Uploads / replaces the **`catalog`** release (`catalog.json`, `*.tgz`, icons)  
+- On a `v*` tag, also creates that version release  
 
-See [mgu-store PUBLISHING](https://github.com/robertnisipeanu/mgu-store/blob/main/docs/PUBLISHING.md).
+Head unit runs Node 8 — keep that API surface. No BMW `oap-sdk` in the packages (donor kit shell only).
 
 ## Licence
 
-GPL-3.0-or-later (`LICENSE`). Upstream credits: `CREDITS.md`.
+GPL-3.0-or-later (`LICENSE`). Upstream credits: `CREDITS.md`.  
 Not affiliated with BMW AG. Drift only on closed courses.

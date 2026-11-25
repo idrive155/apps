@@ -1,3 +1,10 @@
 dist/
 node_modules/
 __pycache__/
+tools/cache/
+tools/.venv/
+apps/*/app_core.js
+assets/atlases.js.bak
+*.dae
+*.glb
+.DS_Store

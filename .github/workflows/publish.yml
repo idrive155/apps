@@ -1,0 +1,86 @@
+name: Publish MGU Store catalog
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version override (optional, else read from each app.json)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build all apps + catalog
+        env:
+          DOWNLOAD_BASE: https://github.com/${{ github.repository }}/releases/download/catalog
+        run: |
+          python3 tools/build_apps.py --out dist --download-base "$DOWNLOAD_BASE"
+          ls -la dist
+
+      - name: Publish catalog release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG=catalog
+          # recreate lightweight catalog release every run (Store reads this)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes || true
+            git push origin :refs/tags/"$TAG" || true
+          fi
+          gh release create "$TAG" \
+            --title "MGU Store catalog" \
+            --notes "Auto-built catalog for idrive155/apps. Add source \`idrive155/apps\` → Releases in the MGU Store." \
+            dist/catalog.json \
+            dist/*.tgz \
+            dist/*.png \
+            dist/mgu-store.json
+
+      - name: Publish version tag release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG="${GITHUB_REF_NAME}"
+          NOTES="$(python3 - <<'PY'
+          import json,glob,os
+          notes=['Packages in this release:','']
+          for p in sorted(glob.glob('dist/*@*.tgz')):
+              j=p[:-4]+'.json'
+              if os.path.isfile(j):
+                  d=json.load(open(j))
+                  notes.append('- **%s** %s — %s' % (d['title'], d['version'], d['id']))
+              else:
+                  notes.append('- %s' % os.path.basename(p))
+          notes += ['', 'Install via MGU Store source `idrive155/apps` (Releases).']
+          print('\n'.join(notes))
+          PY
+          )"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "$NOTES" \
+            dist/*.tgz \
+            dist/*.png \
+            dist/mgu-store.json \
+            dist/catalog.json

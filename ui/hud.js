@@ -9,6 +9,8 @@ const poly = require('../engine/poly');
 const T = require('../engine/text');
 const { angleColour } = require('../fx/world');
 const TM = require('./theme');
+const I18N = require('./i18n');
+I18N.install(T);
 
 const WHITE = 0xffffffff;
 let DIM = rgba(0.62, 0.68, 0.80, 1), FAINT = rgba(0.45, 0.52, 0.66, 1);
