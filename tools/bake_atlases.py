@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""bake_atlases.py - rebuild assets/atlases.js from fonts/src/Saira.ttf (Latin + Hungarian).
+"""bake_atlases.py - keep the original Latin atlases, append Hungarian glyphs.
+
+Restores contrast from the original bake and only adds ÁÉÍÓÖŐÚÜŰáéíóöőúüű
+into free atlas space (or a new row).
 
   tools/.venv/bin/python tools/bake_atlases.py
 """
@@ -9,41 +12,52 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONT = os.path.join(ROOT, 'fonts', 'src', 'Saira.ttf')
 OUT = os.path.join(ROOT, 'assets', 'atlases.js')
+BAK = OUT + '.bak'
 
-# ASCII printable + degree/specials already used + Hungarian letters
-BASE = ''.join(chr(c) for c in range(32, 127))
-EXTRA = '°±·‹›ÁÉÍÓÖŐÚÜŰáéíóöőúüű'
-CHARS = BASE + EXTRA
-
-SPECS = [
-    # name, px, atlas_w, tracking style (weight via variation if available)
-    ('huge', 124, 1024, 700, '0123456789°-'),
-    ('big', 92, 1024, 600, '0123456789.,:-+°%/±'),
-    ('mid', 40, 1024, 600, CHARS),
-    ('sm', 24, 1024, 500, CHARS),
-    ('xs', 17, 512, 500, CHARS),
-    ('lab', 19, 512, 600, CHARS),
-    ('labs', 15, 512, 500, CHARS),
-]
+HU = 'ÁÉÍÓÖŐÚÜŰáéíóöőúüű'
+# fonts that show UI labels (huge/big stay numeric-only)
+LABEL_FONTS = ('mid', 'sm', 'xs', 'lab', 'labs')
 
 
-def load_font(px, weight):
-    try:
-        return ImageFont.truetype(FONT, size=px)
-    except Exception as e:
-        raise SystemExit('need %s: %s' % (FONT, e))
+def load_exports(path):
+    raw = open(path, encoding='utf8').read()
+    return json.loads(raw[raw.find('{'):raw.rfind('}') + 1])
+
+
+def save_exports(data, path):
+    body = "'use strict';\n/* made by tools/bake_atlases.py - do not edit */\nmodule.exports = " + json.dumps(data, ensure_ascii=False, separators=(',', ':')) + ';\n'
+    open(path, 'w', encoding='utf8').write(body)
+
+
+def boost_alpha(img, target_mean=200):
+    """Lift antialiased coverage toward the original atlas brightness."""
+    px = img.load()
+    w, h = img.size
+    vals = [px[x, y] for y in range(h) for x in range(w) if px[x, y] > 0]
+    if not vals:
+        return img
+    mean = sum(vals) / len(vals)
+    if mean >= target_mean * 0.95:
+        return img
+    # gamma-ish boost then clip
+    scale = target_mean / max(mean, 1)
+    out = Image.new('L', img.size, 0)
+    op = out.load()
+    for y in range(h):
+        for x in range(w):
+            v = px[x, y]
+            if v:
+                op[x, y] = min(255, int(round(v * scale * 1.05)))
+    return out
 
 
 def raster_glyph(font, ch, ascent, descent):
-    """Render ch; return (advance, ox, oy, img) with oy from top-of-line (ascent box)."""
     adv = font.getlength(ch) if hasattr(font, 'getlength') else font.getsize(ch)[0]
-    # draw on a canvas with baseline at y=ascent; find ink
     pad = 4
     W = max(8, int(adv) + 8 + pad * 2)
-    H = ascent + descent + pad * 2
+    H = ascent + descent + pad * 2 + 8
     canvas = Image.new('L', (W, H), 0)
     draw = ImageDraw.Draw(canvas)
-    # Pillow text position is top-left of the em box for default anchor; use anchor='ls' (left/baseline) when available
     try:
         draw.text((pad, ascent), ch, font=font, fill=255, anchor='ls')
     except TypeError:
@@ -52,87 +66,96 @@ def raster_glyph(font, ch, ascent, descent):
     if not ink:
         return round(float(adv), 2), 0, 0, None
     l, t, r, b = ink
-    img = canvas.crop((l, t, r, b))
-    ox = l - pad
-    oy = t  # already from top of canvas ≈ top of line when anchor=ls
-    return round(float(adv), 2), int(ox), int(oy), img
+    img = boost_alpha(canvas.crop((l, t, r, b)))
+    return round(float(adv), 2), int(l - pad), int(t), img
 
 
-def bake_font(name, px, atlas_w, weight, charset):
-    font = load_font(px, weight)
-    ascent, descent = font.getmetrics()
-    pad = 1
-    x = pad
-    y = pad
+def extend_font(name, font_data):
+    missing = [c for c in HU if c not in font_data['glyphs'] or font_data['glyphs'][c][3] == 0]
+    if not missing:
+        print(name, 'already has Hungarian')
+        return font_data
+
+    px = font_data['px']
+    font = ImageFont.truetype(FONT, size=px)
+    ascent = font_data.get('asc', font.getmetrics()[0])
+    descent = font_data.get('desc', font.getmetrics()[1])
+
+    atlas = Image.frombytes('L', (font_data['w'], font_data['h']), base64.b64decode(font_data['alpha']))
+    glyphs = dict(font_data['glyphs'])
+    pad = 2
+
+    # measure strip height first
+    rasters = []
     row_h = 0
-    glyphs = {}
-    placed = []  # (ch, x, y, w, h, ox, oy, adv, img)
-
-    for ch in charset:
+    for ch in missing:
         adv, ox, oy, img = raster_glyph(font, ch, ascent, descent)
         if img is None:
             glyphs[ch] = [adv, 0, 0, 0, 0, 0, 0]
             continue
+        rasters.append((ch, adv, ox, oy, img))
+        row_h = max(row_h, img.size[1])
+
+    # append a new strip under the original bake (keeps Latin glyphs untouched)
+    strip_h = row_h + pad * 2
+    new_h = (atlas.size[1] + strip_h + 3) & ~3
+    grown = Image.new('L', (atlas.size[0], new_h), 0)
+    grown.paste(atlas, (0, 0))
+    atlas = grown
+
+    x = pad
+    y = font_data['h'] + pad
+    for ch, adv, ox, oy, img in rasters:
         gw, gh = img.size
-        if x + gw + pad > atlas_w:
+        if x + gw + pad > atlas.size[0]:
+            # wrap within the new strip if needed
             x = pad
             y += row_h + pad
-            row_h = 0
-        placed.append((ch, x, y, gw, gh, ox, oy, adv, img))
-        row_h = max(row_h, gh)
+            if y + gh + pad > atlas.size[1]:
+                extra = (y + gh + pad * 2 + 3) & ~3
+                bigger = Image.new('L', (atlas.size[0], extra), 0)
+                bigger.paste(atlas, (0, 0))
+                atlas = bigger
+        atlas.paste(img, (x, y))
+        glyphs[ch] = [adv, ox, oy, int(gw), int(gh), int(x), int(y)]
+        print('  +', name, repr(ch), 'at', x, y, 'adv', adv)
         x += gw + pad
 
-    atlas_h = y + row_h + pad
-    # round up to multiple of 4
-    atlas_h = max(atlas_h, 4)
-    atlas_h = (atlas_h + 3) & ~3
-    atlas = Image.new('L', (atlas_w, atlas_h), 0)
-    for ch, gx, gy, gw, gh, ox, oy, adv, img in placed:
-        atlas.paste(img, (gx, gy))
-        glyphs[ch] = [round(float(adv), 2), int(ox), int(oy), int(gw), int(gh), int(gx), int(gy)]
-
-    alpha = base64.b64encode(atlas.tobytes()).decode('ascii')
-    # stable id from name+size
-    fid = abs(hash(name + str(px))) % (2**32)
-    return {
-        'id': fid,
-        'kind': 'font',
-        'px': px,
-        'asc': ascent,
-        'desc': descent,
-        'w': atlas_w,
-        'h': atlas_h,
-        'glyphs': glyphs,
-        'alpha': alpha,
-    }
+    font_data = dict(font_data)
+    font_data['h'] = atlas.size[1]
+    font_data['glyphs'] = glyphs
+    font_data['alpha'] = base64.b64encode(atlas.tobytes()).decode('ascii')
+    return font_data
 
 
 def main():
+    src = BAK if os.path.isfile(BAK) else OUT
+    if not os.path.isfile(src):
+        raise SystemExit('missing ' + src)
     if not os.path.isfile(FONT):
         raise SystemExit('missing ' + FONT)
-    out = {}
-    # preserve fx sprites from existing atlases
-    prev_path = OUT
-    fx = None
-    if os.path.isfile(prev_path):
-        raw = open(prev_path, encoding='utf8').read()
-        i = raw.find('{')
-        j = raw.rfind('}')
-        if i >= 0 and j > i:
-            prev = json.loads(raw[i:j + 1])
-            fx = prev.get('fx')
-    for name, px, aw, weight, chars in SPECS:
-        print('baking', name, px, 'chars', len(chars))
-        out[name] = bake_font(name, px, aw, weight, chars)
-    if not fx:
-        raise SystemExit('no fx atlas in existing assets/atlases.js — keep sprites')
-    out['fx'] = fx
-    body = "'use strict';\n/* made by tools/bake_atlases.py - do not edit */\nmodule.exports = " + json.dumps(out, ensure_ascii=False, separators=(',', ':')) + ';\n'
-    open(OUT, 'w', encoding='utf8').write(body)
+
+    data = load_exports(src)
+    # keep a pristine bak of the original Latin bake once
+    if src == OUT and not os.path.isfile(BAK):
+        open(BAK, 'w', encoding='utf8').write(open(OUT, encoding='utf8').read())
+
+    for name in LABEL_FONTS:
+        if name not in data:
+            continue
+        print('extend', name)
+        data[name] = extend_font(name, data[name])
+
+    save_exports(data, OUT)
     print('wrote', OUT, '%.1f MB' % (os.path.getsize(OUT) / 1e6))
-    for ch in 'ÁÉÍÓÖŐÚÜŰáéíóöőúüű':
-        assert ch in out['mid']['glyphs'], ch
-    print('hungarian glyphs ok')
+    mid = data['mid']['glyphs']
+    for ch in HU:
+        assert ch in mid and mid[ch][3] > 0, ch
+    # brightness check vs original Latin
+    a = base64.b64decode(data['mid']['alpha'])
+    nz = [b for b in a if b > 0]
+    mean = sum(nz) / len(nz)
+    print('mid nonzero mean alpha', round(mean, 1), '(want ~190+)')
 
 
 if __name__ == '__main__':
