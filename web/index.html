@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Drift Analyser — browser preview</title>
+  <style>
+    :root {
+      --bg: #07080c;
+      --panel: #10131a;
+      --line: #2a3140;
+      --text: #e8ecf4;
+      --muted: #8b95a8;
+      --accent: #c8502c;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font-family: "Saira", "Segoe UI", system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; min-height: 100%; }
+    header {
+      display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+      border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #12151d, #0b0d12);
+    }
+    header .brand { font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; font-size: 13px; }
+    header .brand span { color: var(--accent); }
+    header .hint { color: var(--muted); font-size: 13px; flex: 1; }
+    header button {
+      appearance: none; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+      padding: 8px 14px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px;
+    }
+    header button:hover { border-color: var(--accent); }
+    header button.on { background: #2a1810; border-color: var(--accent); color: #ffb89a; }
+    main {
+      flex: 1; display: grid; place-items: center; padding: 20px;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, #151a28 0%, transparent 55%),
+        var(--bg);
+    }
+    .stage {
+      position: relative; width: min(96vw, 1280px); aspect-ratio: 1920 / 720;
+      border-radius: 10px; overflow: hidden; box-shadow: 0 24px 80px rgba(0,0,0,.55);
+      border: 1px solid #222836; background: #05070c;
+    }
+    canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+    .badge {
+      position: absolute; top: 10px; left: 10px; z-index: 2;
+      font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+      color: #9fb0c8; background: rgba(8,10,16,.72); padding: 6px 10px; border-radius: 4px;
+      border: 1px solid rgba(255,255,255,.08);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">idrive155 · <span>Drift Analyser</span></div>
+    <div class="hint">Desktop preview of the car UI (demo drive). Click VITALS for Live Data. Drag to interact.</div>
+    <button type="button" id="btnVitals">Vitals</button>
+    <button type="button" id="btnMenu">Settings</button>
+  </header>
+  <main>
+    <div class="stage">
+      <div class="badge" id="fps">—</div>
+      <canvas id="c" width="1920" height="720"></canvas>
+    </div>
+  </main>
+  <script src="bundle.js"></script>
+  <script src="soft.js"></script>
+  <script src="preview.js"></script>
+</body>
+</html>

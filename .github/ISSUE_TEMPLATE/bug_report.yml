@@ -1,0 +1,16 @@
+name: Bug report
+description: Something does not work as it should
+labels: [bug]
+body:
+  - type: input
+    id: car
+    attributes: { label: Car and head unit, placeholder: "e.g. G82 M4, iDrive 7" }
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: Sideways version, placeholder: "Settings → App → Version" }
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: "What you did, what you expected, what you saw. A photo of the screen helps." }
+    validations: { required: true }

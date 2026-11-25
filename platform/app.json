@@ -1,0 +1,77 @@
+{
+  "id": "sideways",
+  "title": "Drift Analyser",
+  "description": "Drift angle scoring plus Live Data vitals: coolant, oil, gearbox, boost, rpm and gear",
+  "version": "0.7.0",
+  "vendor": "idrive155",
+  "loggingId": "OAD7",
+  "iconGlyph": "SW",
+  "mguHmi": [
+    "ID7",
+    "ID8"
+  ],
+  "signals": {
+    "com.harman.infotainment.systemfunctions.tasu.tasu.InternalTasu": {
+      "_instances": "SystemFunctionsInternalTasuInst1",
+      "_methods": [
+        "sendTasuRequest"
+      ],
+      "_broadcasts": [
+        "sendTasuResponse"
+      ]
+    },
+    "de.bmw.infotainment.vehicle.CDS": {
+      "statusEngineSpeed2": "rs",
+      "statusEngineTemperature": "rs"
+    },
+    "de.bmw.infotainment.vehicle.CDS2": {
+      "statusLongitudinalAccelerationMassCenter": "rs",
+      "statusLateralAccelerationMassCenter": "rs",
+      "statusYawVelocityVehicle": "rs"
+    },
+    "de.bmw.infotainment.vehicle.Vehicle2": {
+      "statusCarSpeed2": "rs",
+      "statusVehiclePartType": "rs"
+    },
+    "de.bmw.chassis.SteeringAngle": {
+      "ActualSteeringAngleDriver": "s",
+      "actualSteeringAngleDriverNoCRC": "s"
+    },
+    "de.bmw.powertrain.Powertrain": {
+      "ActualValueRPMWheel": "s"
+    },
+    "de.bmw.infotainment.drivingexcitement.FES": {
+      "statusSwitchDriveDynamicSport2": "rs",
+      "statusVehicleDynamicEngine": "rs",
+      "statusActualValueTorque2": "rs"
+    },
+    "de.bmw.infrastructure.VehicleInformation": {
+      "statusGearboxDrive": "s",
+      "DataPowerTrain2": "s"
+    },
+    "de.bmw.infrastructure.analytics.BasicDataSet": {
+      "_optional": "gearbox oil temperature when the car fills it",
+      "basicDataSet": "s"
+    },
+    "de.bmw.infrastructure.EnvironmentalInformation": {
+      "ExteriorTemperature": "s"
+    },
+    "de.bmw.infotainment.SatellitePositioning": {
+      "basicPearlChain": "r"
+    },
+    "de.bmw.infotainment.navigation.positioning.Positioning": {
+      "_instances": "Main_Instance",
+      "currentLocation": "r"
+    }
+  },
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "canvas",
+      "title": "Drift Analyser",
+      "chrome": false,
+      "buttons": []
+    }
+  ],
+  "settings": []
+}

@@ -1,0 +1,18 @@
+{
+  "name": "idrive155-apps",
+  "version": "0.7.0",
+  "description": "BMW MGU Drift Analyser + Live Data vitals for iDrive 7 / iDrive 8",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "scripts": {
+    "build": "./tools/make_kit_app.sh",
+    "demo": "node tools/local_demo.js",
+    "demo:long": "node tools/local_demo.js --seconds 90",
+    "preview": "node tools/serve_preview.js",
+    "bundle": "python3 tools/build_web.py web"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/idrive155/apps.git"
+  }
+}

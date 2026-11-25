@@ -1,0 +1,8 @@
+name: Idea
+description: Something Sideways should do
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes: { label: The idea, description: "What it is, and what it would give you on track." }
+    validations: { required: true }
