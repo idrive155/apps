@@ -83,18 +83,21 @@ def pack_app(app_dir, out_dir):
     app_id = meta['id']
     version = meta['version']
     title = meta['title']
-    core_entry = meta.get('coreEntry', 'app/preview_entry.js')
-
-    core_rel = os.path.relpath(os.path.join(app_dir, 'app_core.js'), ROOT)
-    bundle(core_entry, core_rel)
+    core_entry = meta.get('coreEntry', None)
+    if core_entry:
+        core_rel = os.path.relpath(os.path.join(app_dir, 'app_core.js'), ROOT)
+        bundle(core_entry, core_rel)
 
     donor = ensure_donor()
     work = tempfile.mkdtemp(prefix='oap-')
     try:
         pkg = extract_donor(donor, work)
         js = os.path.join(pkg, 'javascript')
-        for drop in ('http.js', 'sig.js', 'carid.js', 'sideways_core.js'):
-            p = os.path.join(js, drop)
+        # keep kit/ only from the donor; replace app javascript from apps/<id>/
+        for name in os.listdir(js):
+            if name == 'kit':
+                continue
+            p = os.path.join(js, name)
             if os.path.isfile(p):
                 os.remove(p)
 

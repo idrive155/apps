@@ -1,0 +1,44 @@
+{
+  "id": "idrive155_lights",
+  "title": "IDRIVE155 Lights",
+  "titleHu": "IDRIVE155 Lámpák",
+  "description": "Parked-only exterior lamp controls: indicators, beams, fog and a short disco pattern. Uses body-controller lamp tests; stops if the car moves.",
+  "descriptionHu": "Csak álló autón: index, távoli, köd és rövid disco. Karosszéria-vezérlő lámpateszt; ha elindulsz, leáll.",
+  "version": "0.1.0",
+  "vendor": "idrive155",
+  "author": "idrive155",
+  "loggingId": "I15L",
+  "iconGlyph": "LI",
+  "mguHmi": ["ID7", "ID8"],
+  "mguInternet": false,
+  "requires": {},
+  "coreEntry": null,
+  "signals": {
+    "com.harman.infotainment.systemfunctions.tasu.tasu.InternalTasu": {
+      "_instances": "SystemFunctionsInternalTasuInst1",
+      "_methods": ["sendTasuRequest"],
+      "_broadcasts": ["sendTasuResponse"]
+    },
+    "de.bmw.infotainment.vehicle.Vehicle2": {
+      "statusCarSpeed2": "rs"
+    }
+  },
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "canvas",
+      "title": "Lights",
+      "chrome": false,
+      "buttons": [
+        ["BTN_LEFT", "Bal"],
+        ["BTN_RIGHT", "Jobb"],
+        ["BTN_BOTH", "Mind"],
+        ["BTN_HIGH", "Távoli"],
+        ["BTN_FOG", "Köd"],
+        ["BTN_DISCO", "Disco"],
+        ["BTN_STOP", "Stop"]
+      ]
+    }
+  ],
+  "settings": []
+}

@@ -19,6 +19,11 @@ Updates: bump `version` in `apps/<id>/app.json`, push a `v*` tag (or run the **P
 | Id | Title | Folder |
 |---|---|---|
 | `idrive155_drift` | IDRIVE155 Drift | [`apps/idrive155_drift`](apps/idrive155_drift) |
+| `idrive155_lights` | IDRIVE155 Lights | [`apps/idrive155_lights`](apps/idrive155_lights) |
+
+### IDRIVE155 Lights
+
+Parked-only exterior lamp controls (left / right / both indicators, high beam, fog, short disco). Uses the body controller’s lamp-test functions; auto-stops after 30 s or if the car moves. Softkeys under the screen. Private property only.
 
 ### IDRIVE155 Drift
 
