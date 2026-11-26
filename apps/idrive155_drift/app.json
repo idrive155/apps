@@ -4,7 +4,7 @@
   "titleHu": "IDRIVE155 Drift",
   "description": "Drift angle scoring plus Live Data vitals: coolant, oil, gearbox, boost, rpm and gear. iDrive 7 and 8.",
   "descriptionHu": "Drift szög mérés és pontozás, plusz élő adatok: hűtővíz, olaj, váltó, turbó, fordulat és fokozat. iDrive 7 és 8.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "vendor": "idrive155",
   "author": "idrive155",
   "loggingId": "I155",

@@ -24,7 +24,9 @@ class Metrics {
     }
     update(s, dt) {
         const vx = Math.max(Math.abs(s.vx), 0.5) * Math.sign(s.vx || 1), vy = s.vy;
-        const beta = s.speed > 1 ? -Math.atan2(vy, Math.abs(vx)) * R2D : 0;
+        let beta = s.speed > 1 ? -Math.atan2(vy, Math.abs(vx)) * R2D : 0;
+        // kill sub-2° noise so the HUD and score stay quiet on a straight road
+        if (Math.abs(beta) < 2) beta = 0;
         const rate = (beta - this.beta) / dt;
         this.betaRate += (rate - this.betaRate) * Math.min(1, dt * 12);
         this.beta = beta;

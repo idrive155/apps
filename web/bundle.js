@@ -3605,7 +3605,7 @@ defs["app/core.js"] = function (module, exports) {
  */
 const { CarRenderer } = req("car/render.js");
 const { PRESETS, BODIES } = req("car/presets.js");
-const VERSION = '0.7.0';
+const VERSION = '0.7.1';
 const { Cam } = req("engine/cam.js");
 // the demo drive is a development tool: a public build has none (sim/demo.js exports DemoDriver: null)
 const { DemoDriver } = req("sim/demo.js");
@@ -3712,19 +3712,31 @@ function createApp(host) {
     /* ---------- live: one step per sample, with the sample's own time ---------- */
     function liveStep(s, dt) {
         s = s || { ax: 0, ay: 0, yawRate: 0, steerWheel: 0, wheel: [0, 0, 0, 0], brake: 0 };
-        const steer = (s.steerWheel || 0) / S.steerRatio * Math.PI / 180;     // steering-wheel deg -> road-wheel rad
+        let steer = (s.steerWheel || 0) / S.steerRatio * Math.PI / 180;     // steering-wheel deg -> road-wheel rad
+        // road wheels rarely exceed ~35°; clamp noise / bad scale so the model does not flap
+        const STEER_MAX = 0.65;
+        if (steer > STEER_MAX) steer = STEER_MAX; else if (steer < -STEER_MAX) steer = -STEER_MAX;
         const fix = S.gps !== 'off' && gpsFix ? gpsFix : null; gpsFix = null;
         if (fix) gpsSeen = clock;
-        // the signal signs just got settled: start the filter afresh (its gyro bias was learned on a guess)
-        if (s.ready && !wasReady) est = new DriftEstimator(spec, { awd: S.drive === 'awd' });
+        // signs just settled or flipped: rebuild the filter (gyro bias was learned under the old sign)
+        if ((s.ready && !wasReady) || s.signFlip) {
+            est = new DriftEstimator(spec, { awd: S.drive === 'awd' });
+            pose.yaw = 0; camYaw = 0; camVel = 0;
+        }
         wasReady = !!s.ready;
-        est.update({ ax: s.ax, ay: s.ay, yawRate: s.yawRate, steer, wheel: s.wheel }, dt, fix);
+        est.update({ ax: s.ax, ay: s.ay, yawRate: s.yawRate, steer, wheel: s.wheel, wheelsReal: s.wheelsReal }, dt, fix);
         const r = s.yawRate - est.x[4];
         pose.yaw += r * dt;
         const cy = Math.cos(pose.yaw), sy = Math.sin(pose.yaw);
         const vxw = cy * est.vx - sy * est.vy, vyw = sy * est.vx + cy * est.vy;
         pose.x += vxw * dt; pose.y += vyw * dt;
-        return { x: pose.x, y: pose.y, yaw: pose.yaw, vx: est.vx, vy: est.vy, speed: Math.hypot(est.vx, est.vy), yawRate: r, ax: s.ax, ay: s.ay - est.x[2],
+        const speed = Math.hypot(est.vx, est.vy);
+        // when gripping / going straight, pull body yaw onto the travel heading so residual gyro bias cannot spin the car
+        if (speed > 2.5 && Math.abs(est.beta) * 180 / Math.PI < 10 && Math.abs(r) < 0.15) {
+            const travel = Math.atan2(vyw, vxw);
+            pose.yaw += wrap(travel - pose.yaw) * Math.min(1, dt * 3.5);
+        }
+        return { x: pose.x, y: pose.y, yaw: pose.yaw, vx: est.vx, vy: est.vy, speed, yawRate: r, ax: s.ax, ay: s.ay - est.x[2],
             steer, brake: s.brake || 0, wheelSpeed: s.wheel, dt, vxw, vyw };
     }
     /* ---------- one simulation step ---------- */
@@ -3747,7 +3759,10 @@ function createApp(host) {
             };
         } else st = liveStep(live, dt);
         metrics.update(st, dt);
-        if (S.mode === 'demo' || (live && live.ready)) score.update(metrics, dt);
+        // score only when signs are locked and the filter is not wildly uncertain
+        const scoreOk = S.mode === 'demo' || (live && live.ready && (!est || est.quality >= 0.2 || est.sigma < 8));
+        if (scoreOk) score.update(metrics, dt);
+        else if (score.active) { score.grace += dt; if (score.grace > 1.4) score.bank(); }
         if (score.active) { if (chainStartT === null) { chainStartT = rec2.t; chainKmh = 0; } chainKmh = Math.max(chainKmh, metrics.kmh); }
         // new score events go into the replay; a banked chain becomes a local clip
         for (const e of score.events) {
@@ -5110,7 +5125,9 @@ class DriftEstimator {
     }
 
     /**
-     * s: { ax, ay, yawRate (rad/s), steer (road wheels, rad), wheel: [fl, fr, rl, rr] (rad/s) }
+     * s: { ax, ay, yawRate (rad/s), steer (road wheels, rad), wheel: [fl, fr, rl, rr] (rad/s),
+     *      wheelsReal?: bool }  — when wheelsReal is false, front-wheel kinematics are skipped
+     *      (synthetic equal speeds invent false slip under any steer noise).
      * gps (optional, when a fix arrives): { course (rad, + = to the left of x... i.e. same sense as yaw), speed (m/s), age (s) }
      */
     update(s, dt, gps) {
@@ -5139,30 +5156,34 @@ class DriftEstimator {
 
         const H = this.H;
         const rr = s.yawRate - x[4];
-        // ---- A. front wheels ----
         const d = s.steer, cd = Math.cos(d), sd = Math.sin(d);
-        for (let i = 0; i < 2; i++) {
-            const t = i === 0 ? this.tf : -this.tf;
-            const z = s.wheel[i] * this.R;
-            const h = (x[0] - rr * t) * cd + (x[1] + this.a * rr) * sd;
-            let rv = 0.05 + 0.015 * Math.abs(z);
-            if (s.ax < -4) rv *= 5;                 // hard braking: fronts may lock
-            if (this.awd) rv *= s.ax > 0.5 ? 12 : 3; // AWD under power: fronts spin
-            H.fill(0); H[0] = cd; H[1] = sd; H[4] = t * cd - this.a * sd;
-            if (this._upd(z - h, rv * rv)) this.rejects = 0;
-            else if (++this.rejects > 30) {
-                // the wheels have disagreed for a while: the state, not the wheels, is off. Widen its
-                // uncertainty so the measurements pull it back (a missed transient, a bad start)
-                P[0] += 1; P[6] += 4; this.rejects = 0;
+        const wl = s.wheel[0], wr = s.wheel[1];
+        // live.js sets wheelsReal=false when speeds are copied from vehicle speed (equal fronts invent slip)
+        const useWheels = s.wheelsReal !== false;
+        // ---- A. front wheels (only with real per-wheel speeds) ----
+        if (useWheels) {
+            for (let i = 0; i < 2; i++) {
+                const t = i === 0 ? this.tf : -this.tf;
+                const z = s.wheel[i] * this.R;
+                const h = (x[0] - rr * t) * cd + (x[1] + this.a * rr) * sd;
+                let rv = 0.05 + 0.015 * Math.abs(z);
+                if (s.ax < -4) rv *= 5;                 // hard braking: fronts may lock
+                if (this.awd) rv *= s.ax > 0.5 ? 12 : 3; // AWD under power: fronts spin
+                H.fill(0); H[0] = cd; H[1] = sd; H[4] = t * cd - this.a * sd;
+                if (this._upd(z - h, rv * rv)) this.rejects = 0;
+                else if (++this.rejects > 30) {
+                    P[0] += 1; P[6] += 4; this.rejects = 0;
+                }
             }
         }
         // ---- B. GPS course and speed (DriftBox method), against the state when the fix was taken ----
         this._push();
         if (gps && gps.speed > 3 && (!this.gpsInit || this.t - this.gpsSeen > 5)) {
             // first fix (or after a gap): the heading state is put on the GPS course, the history with it
-            const psi = gps.course - Math.atan2(x[1], Math.max(x[0], 0.5)), d = psi - x[3];
+            const psi = gps.course - Math.atan2(x[1], Math.max(x[0], 0.5));
+            const dPsi = psi - x[3];
             x[3] = psi;
-            for (let k = 0; k < 128; k++) this.hist[k * 4 + 1] += d;
+            for (let k = 0; k < 128; k++) this.hist[k * 4 + 1] += dPsi;
             for (let k = 0; k < N; k++) { P[3 * N + k] = 0; P[k * N + 3] = 0; }
             P[3 * N + 3] = 0.01;
             this.gpsInit = true; this.gpsSeen = this.t;
@@ -5190,18 +5211,23 @@ class DriftEstimator {
             H.fill(0); H[1] = 1; H[4] = this.b;
             this._upd(this.b * rr - 0.0053 * s.ay * v - x[1], 0.5 * 0.5);
         }
-        // ---- straight and steady: no slip, no lateral load, no yaw ----
-        const wl = s.wheel[0], wr = s.wheel[1];
-        if (v > 3 && Math.abs(d) < 0.03 && Math.abs(s.yawRate) < 0.04 && Math.abs(wl - wr) * this.R < 0.04 * v) {
-            H.fill(0); H[1] = 1; this._upd(-x[1], 0.08 * 0.08);
-            H.fill(0); H[2] = 1; this._upd(s.ay - x[2], 0.3 * 0.3);
-            // the wheels say how fast the car turns: (wl - wr) R / track
-            const rWheel = (wl - wr) * this.R / (2 * this.tf);
-            H.fill(0); H[4] = 1; this._upd((s.yawRate - rWheel) - x[4], 0.01 * 0.01);
+        // ---- straight / mild corner: pin slip and yaw bias (wider than before — sensor offset often ~2–5 °/s) ----
+        const yawAbs = Math.abs(s.yawRate);
+        const straight = v > 3 && Math.abs(d) < 0.05 && yawAbs < 0.12 && Math.abs(s.ay) < 2.2
+            && (!useWheels || Math.abs(wl - wr) * this.R < 0.06 * v);
+        if (straight) {
+            H.fill(0); H[1] = 1; this._upd(-x[1], 0.06 * 0.06);
+            H.fill(0); H[2] = 1; this._upd(s.ay - x[2], 0.25 * 0.25);
+            const rWheel = useWheels ? (wl - wr) * this.R / (2 * this.tf) : 0;
+            H.fill(0); H[4] = 1; this._upd((s.yawRate - rWheel) - x[4], 0.015 * 0.015);
+        } else if (v > 5 && Math.abs(d) < 0.08 && yawAbs < 0.18 && Math.abs(s.ay) < 3.0) {
+            // soft pin while nearly straight — stops vy creep that fakes a drift angle
+            H.fill(0); H[1] = 1; this._upd(-x[1], 0.20 * 0.20);
+            H.fill(0); H[4] = 1; this._upd(s.yawRate - x[4], 0.04 * 0.04);
         }
         // ---- standstill: parked car cannot drift sideways; pin vx, vy and sensor biases ----
         const vWheel = (Math.abs(wl) + Math.abs(wr)) * 0.5 * this.R;
-        if (vWheel < 0.3 && Math.abs(s.yawRate) < 0.05 && Math.hypot(x[0], x[1]) < 2.0) {
+        if (vWheel < 0.3 && Math.abs(s.yawRate) < 0.08 && Math.hypot(x[0], x[1]) < 2.0) {
             H.fill(0); H[0] = 1; this._upd(-x[0], 0.05 * 0.05);
             H.fill(0); H[1] = 1; this._upd(-x[1], 0.05 * 0.05);
             H.fill(0); H[2] = 1; this._upd(s.ay - x[2], 0.3 * 0.3);
@@ -5296,6 +5322,7 @@ class Score {
         this.bigClock = 0; this.smoothClock = 0; this.csClock = 0; this.events = []; this.t = 0;
         this.chains = 0; this.longest = 0; this.maxAngle = 0; this.angleSum = 0; this.angleTime = 0;
         this.last = null; this.rate = 0; this.speedClock = 0; this.chainMax = 0; this.spinClock = 0; this.sideDrift = 0;
+        this.hold = 0; // must hold a real angle briefly before a chain starts (kills false spikes)
         // per-chain M metrics
         this.chainDist = 0; this.chainAngSum = 0; this.chainAngTime = 0;
         // session: integral of |beta| while drifting (deg·s), and best star drift
@@ -5309,13 +5336,19 @@ class Score {
     update(m, dt) {
         this.t += dt;
         const ang = Math.abs(m.beta), kmh = m.kmh;
-        const drifting = ang >= 10 && kmh >= 20 && ang < 110;
+        // a real drift at speed moves the yaw sensor / lateral G; angle-only spikes are filter noise
+        const motion = Math.abs(m.yawRate) >= 6 || Math.abs(m.latG) >= 0.12 || (m.cs || 0) >= 8;
+        const angleOk = ang >= 12 && ang < 110 && kmh >= 25;
+        const candidate = angleOk && motion;
+        if (candidate) this.hold = Math.min(1.5, this.hold + dt); else this.hold = Math.max(0, this.hold - dt * 2);
+        const drifting = candidate && (this.active || this.hold >= 0.35);
         this.drifting = drifting;
         this.spinClock = ang >= 110 ? this.spinClock + dt : 0;
         if (this.active && (this.spinClock >= 0.2 || (kmh < 8 && this.grace > 0.3))) {
             this._ev('lost', this.spinClock >= 0.2 ? 'SPUN OUT' : 'CHAIN LOST', -this.chain);
             this.active = false; this.chain = 0; this.mult = 1; this.chainTime = 0; this.rate = 0;
             this.chainDist = 0; this.chainAngSum = 0; this.chainAngTime = 0;
+            this.hold = 0;
             return this;
         }
         if (drifting) {
@@ -5412,7 +5445,9 @@ class Metrics {
     }
     update(s, dt) {
         const vx = Math.max(Math.abs(s.vx), 0.5) * Math.sign(s.vx || 1), vy = s.vy;
-        const beta = s.speed > 1 ? -Math.atan2(vy, Math.abs(vx)) * R2D : 0;
+        let beta = s.speed > 1 ? -Math.atan2(vy, Math.abs(vx)) * R2D : 0;
+        // kill sub-2° noise so the HUD and score stay quiet on a straight road
+        if (Math.abs(beta) < 2) beta = 0;
         const rate = (beta - this.beta) / dt;
         this.betaRate += (rate - this.betaRate) * Math.min(1, dt * 12);
         this.beta = beta;

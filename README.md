@@ -20,10 +20,15 @@ Updates: bump `version` in `apps/<id>/app.json`, push a `v*` tag (or run the **P
 |---|---|---|
 | `idrive155_drift` | IDRIVE155 Drift | [`apps/idrive155_drift`](apps/idrive155_drift) |
 | `idrive155_lights` | IDRIVE155 Lights | [`apps/idrive155_lights`](apps/idrive155_lights) |
+| `idrive155_tiktok` | IDRIVE155 TikTok | [`apps/idrive155_tiktok`](apps/idrive155_tiktok) |
 
 ### IDRIVE155 Lights
 
 Parked-only exterior lamp controls (left / right / both indicators, high beam, fog, short disco). Uses the body controller’s lamp-test functions; auto-stops after 30 s or if the car moves. Softkeys under the screen. Private property only.
+
+### IDRIVE155 TikTok
+
+Parked-only TikTok-style For You feed. Next / previous with **Fel / Le** softkeys or the iDrive controller. Needs **mgu-uplink** (same Wi-Fi / USB / LTE as the Store). No in-car Chromium — HTTPS feed + native UI.
 
 ### IDRIVE155 Drift
 

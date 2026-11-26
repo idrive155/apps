@@ -2,9 +2,9 @@
   "id": "idrive155_lights",
   "title": "IDRIVE155 Lights",
   "titleHu": "IDRIVE155 Lámpák",
-  "description": "Parked-only exterior lamp controls: indicators, beams, fog and a short disco pattern. Uses body-controller lamp tests; stops if the car moves.",
-  "descriptionHu": "Csak álló autón: index, távoli, köd és rövid disco. Karosszéria-vezérlő lámpateszt; ha elindulsz, leáll.",
-  "version": "0.1.0",
+  "description": "Parked-only exterior lamp controls: indicators, beams, fog and a short disco pattern. Uses body-controller lamp tests; stops if the car moves. Controller / Up-Down-OK softkeys for cars without a touchscreen.",
+  "descriptionHu": "Csak álló autón: index, távoli, köd és rövid disco. Karosszéria-vezérlő lámpateszt; ha elindulsz, leáll. Tekergetős / Fel–Le–OK softkey navigáció érintő nélküli egységekhez.",
+  "version": "0.1.1",
   "vendor": "idrive155",
   "author": "idrive155",
   "loggingId": "I15L",
@@ -30,12 +30,9 @@
       "title": "Lights",
       "chrome": false,
       "buttons": [
-        ["BTN_LEFT", "Bal"],
-        ["BTN_RIGHT", "Jobb"],
-        ["BTN_BOTH", "Mind"],
-        ["BTN_HIGH", "Távoli"],
-        ["BTN_FOG", "Köd"],
-        ["BTN_DISCO", "Disco"],
+        ["BTN_UP", "Fel"],
+        ["BTN_DOWN", "Le"],
+        ["BTN_OK", "OK"],
         ["BTN_STOP", "Stop"]
       ]
     }

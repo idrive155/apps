@@ -14,7 +14,7 @@
  */
 const { CarRenderer } = require('../car/render');
 const { PRESETS, BODIES } = require('../car/presets');
-const VERSION = '0.7.0';
+const VERSION = '0.7.1';
 const { Cam } = require('../engine/cam');
 // the demo drive is a development tool: a public build has none (sim/demo.js exports DemoDriver: null)
 const { DemoDriver } = require('../sim/demo');
@@ -121,19 +121,31 @@ function createApp(host) {
     /* ---------- live: one step per sample, with the sample's own time ---------- */
     function liveStep(s, dt) {
         s = s || { ax: 0, ay: 0, yawRate: 0, steerWheel: 0, wheel: [0, 0, 0, 0], brake: 0 };
-        const steer = (s.steerWheel || 0) / S.steerRatio * Math.PI / 180;     // steering-wheel deg -> road-wheel rad
+        let steer = (s.steerWheel || 0) / S.steerRatio * Math.PI / 180;     // steering-wheel deg -> road-wheel rad
+        // road wheels rarely exceed ~35°; clamp noise / bad scale so the model does not flap
+        const STEER_MAX = 0.65;
+        if (steer > STEER_MAX) steer = STEER_MAX; else if (steer < -STEER_MAX) steer = -STEER_MAX;
         const fix = S.gps !== 'off' && gpsFix ? gpsFix : null; gpsFix = null;
         if (fix) gpsSeen = clock;
-        // the signal signs just got settled: start the filter afresh (its gyro bias was learned on a guess)
-        if (s.ready && !wasReady) est = new DriftEstimator(spec, { awd: S.drive === 'awd' });
+        // signs just settled or flipped: rebuild the filter (gyro bias was learned under the old sign)
+        if ((s.ready && !wasReady) || s.signFlip) {
+            est = new DriftEstimator(spec, { awd: S.drive === 'awd' });
+            pose.yaw = 0; camYaw = 0; camVel = 0;
+        }
         wasReady = !!s.ready;
-        est.update({ ax: s.ax, ay: s.ay, yawRate: s.yawRate, steer, wheel: s.wheel }, dt, fix);
+        est.update({ ax: s.ax, ay: s.ay, yawRate: s.yawRate, steer, wheel: s.wheel, wheelsReal: s.wheelsReal }, dt, fix);
         const r = s.yawRate - est.x[4];
         pose.yaw += r * dt;
         const cy = Math.cos(pose.yaw), sy = Math.sin(pose.yaw);
         const vxw = cy * est.vx - sy * est.vy, vyw = sy * est.vx + cy * est.vy;
         pose.x += vxw * dt; pose.y += vyw * dt;
-        return { x: pose.x, y: pose.y, yaw: pose.yaw, vx: est.vx, vy: est.vy, speed: Math.hypot(est.vx, est.vy), yawRate: r, ax: s.ax, ay: s.ay - est.x[2],
+        const speed = Math.hypot(est.vx, est.vy);
+        // when gripping / going straight, pull body yaw onto the travel heading so residual gyro bias cannot spin the car
+        if (speed > 2.5 && Math.abs(est.beta) * 180 / Math.PI < 10 && Math.abs(r) < 0.15) {
+            const travel = Math.atan2(vyw, vxw);
+            pose.yaw += wrap(travel - pose.yaw) * Math.min(1, dt * 3.5);
+        }
+        return { x: pose.x, y: pose.y, yaw: pose.yaw, vx: est.vx, vy: est.vy, speed, yawRate: r, ax: s.ax, ay: s.ay - est.x[2],
             steer, brake: s.brake || 0, wheelSpeed: s.wheel, dt, vxw, vyw };
     }
     /* ---------- one simulation step ---------- */
@@ -156,7 +168,10 @@ function createApp(host) {
             };
         } else st = liveStep(live, dt);
         metrics.update(st, dt);
-        if (S.mode === 'demo' || (live && live.ready)) score.update(metrics, dt);
+        // score only when signs are locked and the filter is not wildly uncertain
+        const scoreOk = S.mode === 'demo' || (live && live.ready && (!est || est.quality >= 0.2 || est.sigma < 8));
+        if (scoreOk) score.update(metrics, dt);
+        else if (score.active) { score.grace += dt; if (score.grace > 1.4) score.bank(); }
         if (score.active) { if (chainStartT === null) { chainStartT = rec2.t; chainKmh = 0; } chainKmh = Math.max(chainKmh, metrics.kmh); }
         // new score events go into the replay; a banked chain becomes a local clip
         for (const e of score.events) {

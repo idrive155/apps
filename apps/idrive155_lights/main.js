@@ -2,6 +2,7 @@
 /**
  * IDRIVE155 Lights — parked-only exterior lamp controls (indicators, high beam, fog, disco).
  * Uses BDC LEUCHTEN_FUNKTION timed tests; ending the diagnostic session returns lamps to the car.
+ * Controller / softkey navigation: turn or Fel/Le to move focus, press / OK to toggle.
  */
 const mgu = require('./kit/mgu');
 const { Diag } = require('./kit/diag');
@@ -14,18 +15,20 @@ const HOLD_MS = 700;
 const RENEW_MS = 450;
 
 const COL = {
-    bg: '#07090f',
-    panel: '#121826',
-    panel2: '#1a2233',
+    bg0: '#06080e',
+    bg1: '#0c121c',
+    panel: '#121a28',
+    panelHi: '#1a2436',
     line: '#2a3548',
     text: '#e8eef8',
     dim: '#8b9bb4',
     faint: '#5a6a84',
-    accent: '#3d8bfd',
+    accent: '#4a9bff',
     amber: '#ffb020',
     red: '#e6242e',
     green: '#3dd68c',
     white: '#f5f7fb',
+    fog: '#fff2b0',
 };
 
 mgu.run({
@@ -41,13 +44,25 @@ mgu.run({
         const lamps = new LampDriver(diag, log);
         const parked = parkedWatch.watch(ctx, log);
 
+        const OPTIONS = [
+            { id: 'left', label: T.left, accent: COL.amber },
+            { id: 'right', label: T.right, accent: COL.amber },
+            { id: 'both', label: T.both, accent: COL.amber },
+            { id: 'high', label: T.high, accent: COL.white },
+            { id: 'fog', label: T.fog, accent: COL.fog },
+            { id: 'disco', label: T.disco, accent: COL.accent },
+            { id: 'stop', label: T.stop, accent: COL.red },
+        ];
+
         let mode = 'idle'; // idle | left | right | both | high | fog | disco
+        let focus = 0;
         let lit = { L: false, R: false, high: false, fog: false };
         let status = T.ready;
         let discoStep = 0;
         let runUntil = 0;
         let renewTimer = null;
         let discoTimer = null;
+        let ccuLast = null;
 
         function clearTimers() {
             clearInterval(renewTimer); renewTimer = null;
@@ -170,6 +185,26 @@ mgu.run({
             return render();
         }
 
+        function moveFocus(d) {
+            const n = OPTIONS.length;
+            focus = ((focus + d) % n + n) % n;
+            return render();
+        }
+
+        function activateFocus() {
+            const opt = OPTIONS[focus];
+            if (!opt) return;
+            if (opt.id === 'stop') return hardStop(T.stopped);
+            if (opt.id === 'disco') return mode === 'disco' ? hardStop(T.stopped) : startDisco();
+            return setMode(mode === opt.id ? 'idle' : opt.id);
+        }
+
+        function activateId(id) {
+            const i = OPTIONS.findIndex((o) => o.id === id);
+            if (i >= 0) focus = i;
+            return activateFocus();
+        }
+
         // safety poll
         setInterval(() => {
             if (mode !== 'idle' && parked.moving()) hardStop(T.moving);
@@ -180,35 +215,47 @@ mgu.run({
         ['SIGTERM', 'SIGINT', 'SIGHUP'].forEach((s) => process.on(s, () => { lamps.stop(); process.exit(0); }));
         if (ctx.app && ctx.app.on) ctx.app.on('shutdown', () => lamps.stop());
 
-        ui.onClick('BTN_LEFT', () => setMode(mode === 'left' ? 'idle' : 'left'));
-        ui.onClick('BTN_RIGHT', () => setMode(mode === 'right' ? 'idle' : 'right'));
-        ui.onClick('BTN_BOTH', () => setMode(mode === 'both' ? 'idle' : 'both'));
-        ui.onClick('BTN_HIGH', () => setMode(mode === 'high' ? 'idle' : 'high'));
-        ui.onClick('BTN_FOG', () => setMode(mode === 'fog' ? 'idle' : 'fog'));
-        ui.onClick('BTN_DISCO', () => (mode === 'disco' ? hardStop(T.stopped) : startDisco()));
+        // Softkeys: step through the list (works without touch / without GPU own-mode)
+        ui.onClick('BTN_UP', () => moveFocus(-1));
+        ui.onClick('BTN_DOWN', () => moveFocus(1));
+        ui.onClick('BTN_OK', () => activateFocus());
         ui.onClick('BTN_STOP', () => hardStop(T.stopped));
 
-        function carSketch(cv, cx, cy) {
-            // top-down car silhouette
-            cv.roundRect(cx - 70, cy - 150, 140, 300, 36, COL.panel2);
-            cv.roundRect(cx - 52, cy - 120, 104, 70, 14, COL.panel);
-            cv.roundRect(cx - 52, cy + 40, 104, 80, 14, COL.panel);
-            // cabin glass
-            cv.roundRect(cx - 44, cy - 40, 88, 70, 12, '#1e2a3d');
-            // lights
-            const lamp = (x, y, on, color, w, h) => {
-                cv.roundRect(x, y, w, h, 6, on ? color : '#2a3140');
-                if (on) cv.roundRect(x - 2, y - 2, w + 4, h + 4, 8, withA(color, 0.25));
-            };
-            lamp(cx - 78, cy - 148, lit.L, COL.amber, 22, 28);
-            lamp(cx + 56, cy - 148, lit.R, COL.amber, 22, 28);
-            lamp(cx - 78, cy + 122, lit.L, COL.amber, 22, 28);
-            lamp(cx + 56, cy + 122, lit.R, COL.amber, 22, 28);
-            lamp(cx - 40, cy - 158, lit.high, COL.white, 28, 14);
-            lamp(cx + 12, cy - 158, lit.high, COL.white, 28, 14);
-            lamp(cx - 88, cy - 100, lit.fog, '#fff2b0', 16, 20);
-            lamp(cx + 72, cy - 100, lit.fog, '#fff2b0', 16, 20);
-        }
+        // Optional direct softkeys (if present in an older pack)
+        ui.onClick('BTN_LEFT', () => activateId('left'));
+        ui.onClick('BTN_RIGHT', () => activateId('right'));
+        ui.onClick('BTN_BOTH', () => activateId('both'));
+        ui.onClick('BTN_HIGH', () => activateId('high'));
+        ui.onClick('BTN_FOG', () => activateId('fog'));
+        ui.onClick('BTN_DISCO', () => activateId('disco'));
+
+        // Rotary when the kit does not own the screen (software path / no touch routing)
+        ctx.controller.onInput((v) => {
+            const k = Number(v.frontRotaryEncoderOperation);
+            const pb = Number(v.frontRotaryEncoderPushButton);
+            const df = Number(v.frontRotaryEncoderDeflection);
+            const L = ccuLast;
+            ccuLast = { k, pb, df };
+            if (pb === 15 && df === 15) return;
+            let d = L ? ((k - L.k + 32768) & 0xffff) - 32768 : 0;
+            if (Math.abs(d) > 64) d = 0;
+            const down = (x) => x === 1 || x === 2;
+            const press = down(pb) && !(L && down(L.pb));
+            // tilt N/S also steps (handy if knob is flaky)
+            const tiltN = (df === 1 || df === 2) && !(L && (L.df === 1 || L.df === 2));
+            const tiltS = (df === 7 || df === 8) && !(L && (L.df === 7 || L.df === 8));
+            if (tiltN) d = -1;
+            if (tiltS) d = 1;
+            if (d) moveFocus(d > 0 ? 1 : -1);
+            else if (press) activateFocus();
+        });
+
+        ui.onVisible((name, on) => {
+            if (name !== 'MAIN') return;
+            try { ctx.controller.grab(!!on); } catch (e) { /* ignore */ }
+            if (!on) ccuLast = null;
+        });
+        try { ctx.controller.grab(true); } catch (e) { /* ignore */ }
 
         function withA(hex, a) {
             const s = hex.replace('#', '');
@@ -216,53 +263,96 @@ mgu.run({
             return [r, g, b, Math.round(a * 255)];
         }
 
-        function chip(cv, x, y, w, h, label, on, accent) {
-            cv.roundRect(x, y, w, h, 14, on ? accent : COL.panel);
-            cv.text(label, x + w / 2, y + h / 2 + 8, 26, on ? '#0a0c12' : COL.text, { align: 'center', font: 'bold', literal: true });
+        function carSketch(cv, cx, cy) {
+            cv.roundRect(cx - 78, cy - 162, 156, 324, 42, COL.panel);
+            cv.roundRect(cx - 70, cy - 150, 140, 300, 36, COL.panelHi);
+            cv.roundRect(cx - 52, cy - 120, 104, 70, 14, COL.panel);
+            cv.roundRect(cx - 52, cy + 40, 104, 80, 14, COL.panel);
+            cv.roundRect(cx - 44, cy - 40, 88, 70, 12, '#1e2a3d');
+            const lamp = (x, y, on, color, w, h) => {
+                cv.roundRect(x, y, w, h, 6, on ? color : '#2a3140');
+                if (on) cv.roundRect(x - 3, y - 3, w + 6, h + 6, 8, withA(color, 0.28));
+            };
+            lamp(cx - 78, cy - 148, lit.L, COL.amber, 22, 28);
+            lamp(cx + 56, cy - 148, lit.R, COL.amber, 22, 28);
+            lamp(cx - 78, cy + 122, lit.L, COL.amber, 22, 28);
+            lamp(cx + 56, cy + 122, lit.R, COL.amber, 22, 28);
+            lamp(cx - 40, cy - 158, lit.high, COL.white, 28, 14);
+            lamp(cx + 12, cy - 158, lit.high, COL.white, 28, 14);
+            lamp(cx - 88, cy - 100, lit.fog, COL.fog, 16, 20);
+            lamp(cx + 72, cy - 100, lit.fog, COL.fog, 16, 20);
         }
 
         function render() {
-            const cv = ctx.canvas(W, H).clear(COL.bg);
+            const cv = ctx.canvas(W, H).clear(COL.bg0);
             const moving = parked.moving();
             const spd = parked.speed();
 
-            // header
-            cv.text('IDRIVE155', 48, 48, 22, COL.accent, { font: 'bold', literal: true });
-            cv.text(T.title, 48, 88, 42, COL.text, { font: 'bold', literal: true });
+            // soft vertical wash
+            cv.gradientRect(0, 0, W, H, [[0, COL.bg0], [1, COL.bg1]]);
+            cv.fillRect(0, 0, 6, H, COL.accent);
+
+            // left: brand + car
+            cv.text('IDRIVE155', 48, 42, 20, COL.accent, { font: 'bold', literal: true });
+            cv.text(T.title, 48, 88, 44, COL.text, { font: 'bold', literal: true });
             cv.text(T.subtitle, 48, 122, 20, COL.dim, { literal: true });
 
-            // park badge
+            carSketch(cv, 250, 310);
+
             const badge = moving ? T.badgeMove : T.badgePark;
             const badgeC = moving ? COL.red : COL.green;
-            cv.roundRect(W - 360, 36, 312, 56, 14, withA(badgeC, 0.18));
-            cv.text(badge, W - 204, 72, 24, badgeC, { align: 'center', font: 'bold', literal: true });
-            if (spd != null) cv.text(Math.round(spd) + ' km/h', W - 204, 108, 18, COL.faint, { align: 'center', literal: true });
+            cv.roundRect(130, 470, 240, 36, 10, withA(badgeC, 0.16));
+            cv.text(badge + (spd != null ? '  ·  ' + Math.round(spd) + ' km/h' : ''), 250, 494, 18, badgeC, {
+                align: 'center', font: 'bold', literal: true,
+            });
 
-            // car
-            carSketch(cv, 280, 300);
+            // right: status + focusable list
+            const lx = 480, ly = 36, lw = 1070;
+            cv.roundRect(lx, ly, lw, 56, 12, COL.panel);
+            cv.text(status, lx + 28, ly + 36, 26, COL.text, { font: 'bold', literal: true });
 
-            // status
-            cv.roundRect(480, 160, 1070, 70, 16, COL.panel);
-            cv.text(status, 510, 205, 28, COL.text, { font: 'bold', literal: true });
+            const listY = 112;
+            const rowH = 46;
+            const gap = 6;
+            OPTIONS.forEach((opt, i) => {
+                const y = listY + i * (rowH + gap);
+                const on = opt.id !== 'stop' && mode === opt.id;
+                const focused = i === focus;
+                const bg = on ? withA(opt.accent, 0.22) : focused ? COL.panelHi : COL.panel;
+                cv.roundRect(lx, y, lw, rowH, 10, bg);
+                if (focused) {
+                    cv.roundRect(lx, y, 6, rowH, 3, opt.accent);
+                    if (cv.strokeRoundRect) {
+                        try { cv.strokeRoundRect(lx, y, lw, rowH, 10, 2, withA(opt.accent, 0.85)); } catch (e) { /* ignore */ }
+                    }
+                } else if (on) {
+                    cv.roundRect(lx, y, 6, rowH, 3, opt.accent);
+                }
+                const label = opt.id === 'disco' && mode === 'disco' ? T.discoStop : opt.label;
+                cv.text(label, lx + 28, y + rowH / 2 + 8, 24, on || focused ? COL.text : COL.dim, {
+                    font: 'bold', literal: true,
+                });
+                if (on) {
+                    cv.text(T.active, lx + lw - 28, y + rowH / 2 + 8, 18, opt.accent, {
+                        align: 'right', font: 'bold', literal: true,
+                    });
+                }
+                // Touch + kit-own controller: each row is a target
+                if (typeof cv.target === 'function') {
+                    const idx = i;
+                    cv.target(lx, y, lw, rowH, () => {
+                        focus = idx;
+                        return activateFocus();
+                    }, 'opt:' + opt.id, 10);
+                }
+            });
 
-            // mode chips (visual only — actions are softkeys)
-            const row = 270;
-            chip(cv, 480, row, 200, 64, T.left, mode === 'left', COL.amber);
-            chip(cv, 700, row, 200, 64, T.right, mode === 'right', COL.amber);
-            chip(cv, 920, row, 200, 64, T.both, mode === 'both', COL.amber);
-            chip(cv, 1140, row, 200, 64, T.high, mode === 'high', COL.white);
-            chip(cv, 1360, row, 190, 64, T.fog, mode === 'fog', '#fff2b0');
-
-            chip(cv, 480, 360, 420, 72, mode === 'disco' ? T.discoStop : T.disco, mode === 'disco', COL.accent);
-            chip(cv, 920, 360, 300, 72, T.stop, mode !== 'idle', COL.red);
-
-            cv.text(T.hint, 480, 470, 20, COL.faint, { literal: true });
-            cv.text(T.limit, 480, 500, 18, COL.faint, { literal: true });
+            cv.text(T.hint, lx, 500, 18, COL.faint, { literal: true });
+            cv.text(T.limit, lx + lw, 500, 16, COL.faint, { align: 'right', literal: true });
 
             return ui.image('MAIN_GFX', cv);
         }
 
-        // softkey labels in RHMI come from app.json; keep loop for live park/speed
         ctx.loop('MAIN', 4, () => render());
         log.info('idrive155_lights started (' + lang + ')');
     },
@@ -271,9 +361,10 @@ mgu.run({
 function detectLang() {
     try {
         const blob = [process.env.LANG, process.env.LC_ALL, process.env.LANGUAGE].join(' ');
+        if (/^en\b|en_US|\.en\b/i.test(blob)) return 'en';
         if (/^hu\b|hu_HU|\.hu\b/i.test(blob)) return 'hu';
     } catch (e) { /* ignore */ }
-    return 'hu'; // default Hungarian for this source
+    return 'hu';
 }
 
 function strings(lang) {
@@ -292,17 +383,18 @@ function strings(lang) {
             highOn: 'High beam on',
             fogOn: 'Fog lights on',
             discoOn: 'Disco running',
-            left: 'LEFT',
-            right: 'RIGHT',
-            both: 'BOTH',
-            high: 'HIGH',
-            fog: 'FOG',
-            disco: 'DISCO',
-            discoStop: 'DISCO · STOP',
-            stop: 'STOP',
+            left: 'Left indicator',
+            right: 'Right indicator',
+            both: 'Both indicators',
+            high: 'High beam',
+            fog: 'Fog lights',
+            disco: 'Disco',
+            discoStop: 'Disco · stop',
+            stop: 'Stop all',
+            active: 'ON',
             badgePark: 'PARKED',
             badgeMove: 'MOVING',
-            hint: 'Use the softkeys under the screen: Left · Right · Both · High · Fog · Disco · Stop',
+            hint: 'Turn the controller or use Up / Down · press OK to toggle',
             limit: 'Private property · max 30 s · stops if you roll',
         };
     }
@@ -320,17 +412,18 @@ function strings(lang) {
         highOn: 'Távoli be',
         fogOn: 'Köd be',
         discoOn: 'Disco megy',
-        left: 'BAL',
-        right: 'JOBB',
-        both: 'MINDKETTŐ',
-        high: 'TÁVOLI',
-        fog: 'KÖD',
-        disco: 'DISCO',
-        discoStop: 'DISCO · STOP',
-        stop: 'STOP',
+        left: 'Bal index',
+        right: 'Jobb index',
+        both: 'Mindkét index',
+        high: 'Távoli',
+        fog: 'Köd',
+        disco: 'Disco',
+        discoStop: 'Disco · stop',
+        stop: 'Minden ki',
+        active: 'BE',
         badgePark: 'ÁLLÓ',
         badgeMove: 'MOZOG',
-        hint: 'A képernyő alatti softkey-ek: Bal · Jobb · Mindkettő · Távoli · Köd · Disco · Stop',
+        hint: 'Tekerj vagy Fel / Le · OK-val kapcsolod',
         limit: 'Magánterület · max 30 mp · elinduláskor leáll',
     };
 }

@@ -115,9 +115,13 @@ class Live {
         this.ctx = ctx; this.log = log; this.spec = spec; this.onSample = onSample; this.onFix = onFix;
         this.v = { ax: 0, ay: 0, yaw: 0, steer: 0, speed: 0, wheelsRaw: null };
         this.seen = {}; this.raw = {};
+        // BMW CDS / LWS convention is left-positive; votes may confirm or flip once, then lock
         this.yawV = new Vote(60); this.latV = new Vote(60); this.lonV = new Vote(40);
+        this.yawSign = 1; this.latSign = 1; this.lonSign = 1;
+        this.signsLocked = false;
+        this.steerF = 0; this.yawF = 0;
         this.wheelK = null; this.kList = []; this.lastSpeed = null; this.lastSpeedT = 0;
-        this.lastFix = null; this.active = false;
+        this.lastFix = null; this.active = false; this.activeSince = 0;
         this.subscribe();
     }
     rawLog(k, v) { const n = this.raw[k] = (this.raw[k] || 0) + 1; if (n <= 5) this.log.info('raw ' + k + ': ' + JSON.stringify(v).slice(0, 300)); }
@@ -134,7 +138,9 @@ class Live {
             let r = asNum(v && v.actualValueSteeringAngleDriver);
             if (r === null) r = numberIn(v, /angle|winkel/i);
             if (r === null || r === 32767 || r === 65535) return;
-            if (r > 32767) r -= 65536; const a = r * 0.04395; if (Math.abs(a) < 900) this.put('steer', a);
+            if (r > 32767) r -= 65536;
+            const a = r * 0.04395;
+            if (Math.abs(a) < 900) this.put('steer', a);
         };
         const W = [
             ['de.bmw.infotainment.vehicle.CDS2', {
@@ -164,42 +170,87 @@ class Live {
         sig.watch('de.bmw.infotainment.navigation.positioning.Positioning', 'Main_Instance', { currentLocation: gnss('location') }, log, { pollMs: 250 })
             .then((s) => log.info('gnss location: ' + (s.error ? 'error ' + s.error : 'polled'))).catch(() => {});
     }
-    /** sign and scale learning */
+    /** sign and scale learning — lock once settled so mid-drive flips cannot spin the car */
     learn(k) {
         const v = this.v, sp = v.speed;
-        if (k === 'yaw' && this.fresh('speed', 500) && sp > 6 && this.fresh('steer') && Math.abs(v.steer) > 25 && Math.abs(v.steer) < 200 && Math.abs(v.ay) < 4) this.yawV.add(Math.sign(v.steer) * Math.sign(v.yaw));
-        if (k === 'ay' && this.fresh('speed', 500) && sp > 6 && this.yawV.sign && Math.abs(v.yaw) > 6 && Math.abs(v.ay) > 1.5) this.latV.add(Math.sign(v.ay) * Math.sign(v.yaw * this.yawV.sign));
-        if (k === 'speed') {
-            const t = Date.now();
-            // the speed's slope over at least 150 ms (the reference stays put until then)
-            if (this.lastSpeed === null || t - this.lastSpeedT > 1000) { this.lastSpeed = sp; this.lastSpeedT = t; }
-            else if (t - this.lastSpeedT >= 150) {
-                const dv = (sp - this.lastSpeed) / ((t - this.lastSpeedT) / 1000);
-                if (Math.abs(dv) > 1.0 && Math.abs(v.ax) > 0.8) this.lonV.add(Math.sign(dv) * Math.sign(v.ax));
-                this.lastSpeed = sp; this.lastSpeedT = t;
+        if (this.signsLocked) {
+            /* still learn wheel scale */
+        } else {
+            if (k === 'yaw' && this.fresh('speed', 500) && sp > 6 && this.fresh('steer') && Math.abs(v.steer) > 25 && Math.abs(v.steer) < 200 && Math.abs(v.ay) < 4) this.yawV.add(Math.sign(v.steer) * Math.sign(v.yaw));
+            if (k === 'ay' && this.fresh('speed', 500) && sp > 6 && this.yawV.sign && Math.abs(v.yaw) > 6 && Math.abs(v.ay) > 1.5) this.latV.add(Math.sign(v.ay) * Math.sign(v.yaw * this.yawV.sign));
+            if (k === 'speed') {
+                const t = Date.now();
+                if (this.lastSpeed === null || t - this.lastSpeedT > 1000) { this.lastSpeed = sp; this.lastSpeedT = t; }
+                else if (t - this.lastSpeedT >= 150) {
+                    const dv = (sp - this.lastSpeed) / ((t - this.lastSpeedT) / 1000);
+                    if (Math.abs(dv) > 1.0 && Math.abs(v.ax) > 0.8) this.lonV.add(Math.sign(dv) * Math.sign(v.ax));
+                    this.lastSpeed = sp; this.lastSpeedT = t;
+                }
+            }
+            if (this.yawV.sign && this.yawSign !== this.yawV.sign) {
+                this.yawSign = this.yawV.sign; this.signFlip = true;
+                this.log.info('locked yaw sign ' + this.yawSign);
+            }
+            if (this.latV.sign && this.latSign !== this.latV.sign) {
+                this.latSign = this.latV.sign; this.signFlip = true;
+                this.log.info('locked lateral sign ' + this.latSign);
+            }
+            if (this.lonV.sign && this.lonSign !== this.lonV.sign) {
+                this.lonSign = this.lonV.sign; this.signFlip = true;
+                this.log.info('locked longitudinal sign ' + this.lonSign);
+            }
+            // lock after yaw+lat settled, enough corner samples, or ~25 s on BMW defaults
+            if ((this.yawV.sign && this.latV.sign) || (this.yawV.p + this.yawV.n) >= 40) this.signsLocked = true;
+            else if (this.activeSince && Date.now() - this.activeSince > 25000) {
+                this.signsLocked = true;
+                this.log.info('locked default BMW signs (+1) after warm-up');
             }
         }
         if (k === 'wheelsRaw' && this.fresh('speed', 500) && sp > 8 && Math.abs(v.steer) < 6 && Math.abs(v.yaw) < 1.5 && Math.abs(v.ax) < 1.5) {
             const f = (v.wheelsRaw[0] + v.wheelsRaw[1]) / 2;
             if (f > 0) { this.kList.push(sp / f); if (this.kList.length > 101) this.kList.shift(); }
-            if (this.kList.length >= 41) { const s = this.kList.slice().sort((a, b) => a - b); const k2 = s[s.length >> 1]; if (!this.wheelK || Math.abs(k2 - this.wheelK) / this.wheelK > 0.01) { this.wheelK = k2; this.log.info('learned wheel scale ' + k2.toPrecision(5) + ' m/s per unit'); } }
+            if (this.kList.length >= 41) {
+                const s = this.kList.slice().sort((a, b) => a - b);
+                const k2 = s[s.length >> 1];
+                if (!this.wheelK || Math.abs(k2 - this.wheelK) / this.wheelK > 0.01) {
+                    this.wheelK = k2; this.log.info('learned wheel scale ' + k2.toPrecision(5) + ' m/s per unit');
+                }
+            }
         }
-        if (this.yawV.sign && !this.yawLogged) { this.yawLogged = 1; this.log.info('learned yaw sign ' + this.yawV.sign); }
-        if (this.latV.sign && !this.latLogged) { this.latLogged = 1; this.log.info('learned lateral sign ' + this.latV.sign); }
-        if (this.lonV.sign && !this.lonLogged) { this.lonLogged = 1; this.log.info('learned longitudinal sign ' + this.lonV.sign); }
     }
-    // ready immediately: BMW iDrive 7 uses standard CAN/SOME/IP signs (+1); wheel scale and
-    // sign checks still run silently in the background without holding back scoring or display
-    get ready() { return true; }
+    // scoring waits until signs are locked (BMW defaults meanwhile); display always runs
+    get ready() { return this.signsLocked; }
     emit() {
         if (!this.active) return;
+        if (!this.activeSince) this.activeSince = Date.now();
         const v = this.v, R = this.spec.wheel.r;
-        const ys = this.yawV.sign || 1, ls = this.latV.sign || 1, gs = this.lonV.sign || 1;
-        let wheel;
-        if (this.wheelK && v.wheelsRaw && this.fresh('wheelsRaw', 300)) wheel = v.wheelsRaw.map((x) => x * this.wheelK / R);
-        else { const w = v.speed / R; wheel = [w, w, w, w]; }
+        const ys = this.yawSign, ls = this.latSign, gs = this.lonSign;
+        // smooth steer / yaw for the filter and the on-screen wheels (raw CAN is noisy)
+        const aSteer = 0.22, aYaw = 0.30;
+        this.steerF += (v.steer - this.steerF) * aSteer;
+        this.yawF += (v.yaw - this.yawF) * aYaw;
+        let steerOut = this.steerF;
+        if (Math.abs(steerOut) < 1.2) steerOut = 0; // deadzone: straight
+        let yawOut = this.yawF;
+        if (Math.abs(yawOut) < 0.35 && Math.abs(steerOut) < 8) yawOut = 0; // quiet straight
+        let wheel, wheelsReal = false;
+        if (this.wheelK && v.wheelsRaw && this.fresh('wheelsRaw', 300)) {
+            wheel = v.wheelsRaw.map((x) => x * this.wheelK / R);
+            wheelsReal = true;
+        } else {
+            const w = v.speed / R;
+            wheel = [w, w, w, w];
+        }
+        const flip = !!this.signFlip; this.signFlip = false;
         const hr = process.hrtime();
-        this.onSample({ t: hr[0] + hr[1] / 1e9, ax: v.ax * gs, ay: v.ay * ls, yawRate: v.yaw * ys * D2R, steerWheel: v.steer, wheel, speed: v.speed, brake: 0, ready: this.ready });
+        this.onSample({
+            t: hr[0] + hr[1] / 1e9,
+            ax: v.ax * gs, ay: v.ay * ls,
+            yawRate: yawOut * ys * D2R,
+            steerWheel: steerOut,
+            wheel, wheelsReal, speed: v.speed, brake: 0,
+            ready: this.ready, signFlip: flip,
+        });
     }
     gnss(pts) {
         if (pts.length < 1) return;

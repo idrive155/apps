@@ -1,0 +1,36 @@
+{
+  "id": "idrive155_tiktok",
+  "title": "IDRIVE155 TikTok",
+  "titleHu": "IDRIVE155 TikTok",
+  "description": "TikTok For You feed on the iDrive screen. Next / previous with softkeys or the controller. Uses MGU Store uplink (Wi-Fi, USB tether or LTE). Parked only.",
+  "descriptionHu": "TikTok For You a iDrive képernyőn. Következő / előző softkey-jel vagy tekerővel. A Store uplinkjét használja (Wi-Fi, USB tether vagy LTE). Csak álló autón.",
+  "version": "0.1.0",
+  "vendor": "idrive155",
+  "author": "idrive155",
+  "loggingId": "I15T",
+  "iconGlyph": "TT",
+  "mguHmi": ["ID7", "ID8"],
+  "mguInternet": true,
+  "requires": {},
+  "coreEntry": null,
+  "signals": {
+    "de.bmw.infotainment.vehicle.Vehicle2": {
+      "statusCarSpeed2": "rs"
+    }
+  },
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "canvas",
+      "title": "TikTok",
+      "chrome": false,
+      "buttons": [
+        ["BTN_UP", "Fel"],
+        ["BTN_DOWN", "Le"],
+        ["BTN_OK", "OK"],
+        ["BTN_RELOAD", "Frissít"]
+      ]
+    }
+  ],
+  "settings": []
+}

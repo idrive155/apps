@@ -2,15 +2,18 @@
 
 Parked-only exterior lamp controls for BMW iDrive 7 / 8.
 
-## Softkeys
+## Navigation (no touchscreen)
 
-| Key | Action |
+Turn the iDrive controller (or push N/S), or use the softkeys, to move the highlight; press the knob / **OK** to toggle the focused option.
+
+| Softkey | Action |
 |---|---|
-| Bal / Jobb / Mind | Left / right / both indicators (held via lamp-test renew) |
-| Távoli | High beam |
-| Köd | Fog lights |
-| Disco | Short rhythmic pattern |
+| Fel | Move focus up |
+| Le | Move focus down |
+| OK | Toggle focused lamp / disco / stop |
 | Stop | End session — lamps back to the car |
+
+On-screen rows (left → disco → stop) are also tappable where the kit owns the screen.
 
 ## Safety
 

@@ -1,6 +1,6 @@
 {
   "name": "idrive155-apps",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "BMW MGU apps for iDrive 7 / iDrive 8 (MGU Store source)",
   "license": "GPL-3.0-or-later",
   "private": true,

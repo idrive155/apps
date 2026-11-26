@@ -49,6 +49,7 @@ class Score {
         this.bigClock = 0; this.smoothClock = 0; this.csClock = 0; this.events = []; this.t = 0;
         this.chains = 0; this.longest = 0; this.maxAngle = 0; this.angleSum = 0; this.angleTime = 0;
         this.last = null; this.rate = 0; this.speedClock = 0; this.chainMax = 0; this.spinClock = 0; this.sideDrift = 0;
+        this.hold = 0; // must hold a real angle briefly before a chain starts (kills false spikes)
         // per-chain M metrics
         this.chainDist = 0; this.chainAngSum = 0; this.chainAngTime = 0;
         // session: integral of |beta| while drifting (deg·s), and best star drift
@@ -62,13 +63,19 @@ class Score {
     update(m, dt) {
         this.t += dt;
         const ang = Math.abs(m.beta), kmh = m.kmh;
-        const drifting = ang >= 10 && kmh >= 20 && ang < 110;
+        // a real drift at speed moves the yaw sensor / lateral G; angle-only spikes are filter noise
+        const motion = Math.abs(m.yawRate) >= 6 || Math.abs(m.latG) >= 0.12 || (m.cs || 0) >= 8;
+        const angleOk = ang >= 12 && ang < 110 && kmh >= 25;
+        const candidate = angleOk && motion;
+        if (candidate) this.hold = Math.min(1.5, this.hold + dt); else this.hold = Math.max(0, this.hold - dt * 2);
+        const drifting = candidate && (this.active || this.hold >= 0.35);
         this.drifting = drifting;
         this.spinClock = ang >= 110 ? this.spinClock + dt : 0;
         if (this.active && (this.spinClock >= 0.2 || (kmh < 8 && this.grace > 0.3))) {
             this._ev('lost', this.spinClock >= 0.2 ? 'SPUN OUT' : 'CHAIN LOST', -this.chain);
             this.active = false; this.chain = 0; this.mult = 1; this.chainTime = 0; this.rate = 0;
             this.chainDist = 0; this.chainAngSum = 0; this.chainAngTime = 0;
+            this.hold = 0;
             return this;
         }
         if (drifting) {
